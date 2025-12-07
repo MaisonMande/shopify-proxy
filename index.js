@@ -1,7 +1,8 @@
 import express from "express";
-import fetch from "node-fetch";
 import fs from "fs";
+import https from "https";
 
+// Express server
 const app = express();
 app.use(express.json());
 
@@ -17,7 +18,7 @@ const JETPACK_TOKEN =
 const LOG_FILE = "log.txt";
 
 // -------------------------
-// HELPER: Logging
+// Helper: Logging
 // -------------------------
 function log(data) {
   fs.appendFileSync(LOG_FILE, `[${new Date().toISOString()}] ${data}\n`);
@@ -31,7 +32,7 @@ app.get("/", (req, res) => {
 });
 
 // -------------------------
-// SHOPIFY WEBHOOK ENDPOINT
+// SHOPIFY WEBHOOK
 // -------------------------
 app.post("/shopify", async (req, res) => {
   try {
@@ -40,13 +41,11 @@ app.post("/shopify", async (req, res) => {
 
     const order = req.body;
 
-    // Validate payload
     if (!order.id) {
       log("❌ ERROR: Missing order.id");
       return res.status(400).json({ success: false, error: "Missing order.id" });
     }
 
-    // Prepare Jetpack data
     const data = {
       ref: order.id,
       nom:
@@ -64,27 +63,45 @@ app.post("/shopify", async (req, res) => {
     log("➡️ DATA SENT TO JETPACK:");
     log(JSON.stringify(data, null, 2));
 
-    // Send to Jetpack
-    const jetpackResponse = await fetch(JETPACK_URL, {
+    // -------------------------
+    // SEND TO JETPACK using https.request
+    // -------------------------
+    const postData = new URLSearchParams({ code: JSON.stringify(data) }).toString();
+
+    const url = new URL(JETPACK_URL);
+    const options = {
+      hostname: url.hostname,
+      path: url.pathname,
       method: "POST",
       headers: {
-        Authorization:
+        "Authorization":
           "Basic " + Buffer.from(JETPACK_TOKEN + ":").toString("base64"),
         "Content-Type": "application/x-www-form-urlencoded",
+        "Content-Length": postData.length,
       },
-      body: new URLSearchParams({ code: JSON.stringify(data) }),
+    };
+
+    const request = https.request(options, (response) => {
+      let body = "";
+      response.on("data", (chunk) => (body += chunk));
+      response.on("end", () => {
+        log("⬅️ RESPONSE FROM JETPACK:");
+        log(body);
+        res.json({
+          success: true,
+          message: "Order forwarded successfully",
+          jetpack_raw: body,
+        });
+      });
     });
 
-    const jetpackText = await jetpackResponse.text();
-
-    log("⬅️ RESPONSE FROM JETPACK:");
-    log(jetpackText);
-
-    return res.json({
-      success: true,
-      message: "Order forwarded successfully",
-      jetpack_raw: jetpackText,
+    request.on("error", (e) => {
+      log("❌ ERROR SENDING TO JETPACK: " + e.message);
+      res.status(500).json({ success: false, error: e.message });
     });
+
+    request.write(postData);
+    request.end();
   } catch (err) {
     log("❌ SERVER ERROR: " + err.message);
     return res.status(500).json({ success: false, error: err.message });
