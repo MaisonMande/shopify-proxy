@@ -2,7 +2,6 @@ import express from "express";
 import fs from "fs";
 import https from "https";
 
-// Express server
 const app = express();
 app.use(express.json());
 
@@ -46,29 +45,31 @@ app.post("/shopify", async (req, res) => {
       return res.status(400).json({ success: false, error: "Missing order.id" });
     }
 
+    // -------------------------
+    // Build Jetpack data
+    // -------------------------
     const data = {
-      ref: order.id,
-      nom:
-        (order.customer?.first_name || "") +
-        " " +
-        (order.customer?.last_name || ""),
-      address: order.shipping_address?.address1 || "",
-      gouvernorat: order.shipping_address?.province || "",
-      delegation: order.shipping_address?.city || "",
-      localite: order.shipping_address?.city || "",
-      phone: order.shipping_address?.phone || "",
-      cod: order.total_price || 0,
+      prix: order.total_price || 0,
+      nom: (order.customer?.first_name || "") + " " + (order.customer?.last_name || ""),
+      gouvernerat: order.shipping_address?.province || "",
+      ville: order.shipping_address?.city || "",
+      adresse: order.shipping_address?.address1 || "",
+      tel: order.shipping_address?.phone || "",
+      tel2: "", // اختياري
+      designation: order.line_items?.map(item => item.name).join(", ") || "Produit",
+      nb_article: order.line_items?.length || 1,
+      msg: "", // أي ملاحظات إضافية
     };
 
     log("➡️ DATA SENT TO JETPACK:");
     log(JSON.stringify(data, null, 2));
 
     // -------------------------
-    // SEND TO JETPACK using https.request
+    // Send to Jetpack
     // -------------------------
-    const postData = new URLSearchParams({ code: JSON.stringify(data) }).toString();
-
+    const postData = new URLSearchParams(data).toString();
     const url = new URL(JETPACK_URL);
+
     const options = {
       hostname: url.hostname,
       path: url.pathname,
