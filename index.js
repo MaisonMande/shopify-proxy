@@ -6,7 +6,7 @@ const app = express();
 app.use(express.json());
 
 // -------------------------
-//  CONFIG
+// CONFIGURATION
 // -------------------------
 const JETPACK_URL =
   "https://www.jetpack.tn/apis/mande-DJSKKNC34UFHJFHSHJBCIN47YILJLKHJQWBJH3KU4H5KHJHFJ45/v1/post.php";
@@ -17,7 +17,7 @@ const JETPACK_TOKEN =
 const LOG_FILE = "log.txt";
 
 // -------------------------
-// Helper → Save Logs
+// HELPER: Logging
 // -------------------------
 function log(data) {
   fs.appendFileSync(LOG_FILE, `[${new Date().toISOString()}] ${data}\n`);
@@ -27,11 +27,11 @@ function log(data) {
 // ROOT TEST
 // -------------------------
 app.get("/", (req, res) => {
-  res.json({ status: "OK", message: "Shopify Proxy is Running on Render!" });
+  res.send("🚀 Shopify Webhook Server is Running");
 });
 
 // -------------------------
-// MAIN SHOPIFY WEBHOOK ENDPOINT
+// SHOPIFY WEBHOOK ENDPOINT
 // -------------------------
 app.post("/shopify", async (req, res) => {
   try {
@@ -40,17 +40,13 @@ app.post("/shopify", async (req, res) => {
 
     const order = req.body;
 
-    // -------------------------
     // Validate payload
-    // -------------------------
     if (!order.id) {
       log("❌ ERROR: Missing order.id");
       return res.status(400).json({ success: false, error: "Missing order.id" });
     }
 
-    // -------------------------
-    // Build Jetpack data
-    // -------------------------
+    // Prepare Jetpack data
     const data = {
       ref: order.id,
       nom:
@@ -68,13 +64,13 @@ app.post("/shopify", async (req, res) => {
     log("➡️ DATA SENT TO JETPACK:");
     log(JSON.stringify(data, null, 2));
 
-    // -------------------------
-    // SEND TO JETPACK
-    // -------------------------
+    // Send to Jetpack
     const jetpackResponse = await fetch(JETPACK_URL, {
       method: "POST",
       headers: {
-        Authorization: "Basic " + Buffer.from(JETPACK_TOKEN + ":").toString("base64"),
+        Authorization:
+          "Basic " + Buffer.from(JETPACK_TOKEN + ":").toString("base64"),
+        "Content-Type": "application/x-www-form-urlencoded",
       },
       body: new URLSearchParams({ code: JSON.stringify(data) }),
     });
@@ -101,5 +97,5 @@ app.post("/shopify", async (req, res) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   log("🚀 Server started on port " + PORT);
-  console.log("Server running on port " + PORT);
+  console.log(`Server running on port ${PORT}`);
 });
