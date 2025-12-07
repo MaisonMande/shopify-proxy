@@ -46,7 +46,7 @@ app.post("/shopify", async (req, res) => {
     }
 
     // -------------------------
-    // Build Jetpack data
+    // Build Jetpack data (x-www-form-urlencoded)
     // -------------------------
     const data = {
       prix: order.total_price || 0,
@@ -106,6 +106,20 @@ app.post("/shopify", async (req, res) => {
   } catch (err) {
     log("❌ SERVER ERROR: " + err.message);
     return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// -------------------------
+// LOGS VIEW for Free Plan
+// -------------------------
+app.get("/logs", (req, res) => {
+  const key = req.query.key;
+  if (key !== "MonMotDePasse123") return res.status(403).send("Forbidden");
+  try {
+    const logs = fs.readFileSync(LOG_FILE, "utf-8");
+    res.type("text/plain").send(logs);
+  } catch (err) {
+    res.status(500).send("Cannot read log file: " + err.message);
   }
 });
 
