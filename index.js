@@ -11,8 +11,7 @@ app.use(express.json());
 const JETPACK_URL =
   "https://www.jetpack.tn/apis/mande-DJSKKNC34UFHJFHSHJBCIN47YILJLKHJQWBJH3KU4H5KHJHFJ45/v1/post.php";
 
-const JETPACK_TOKEN =
-  "DJSKKNC34UFHJFHSHJBCIN47YILJLKHJQWBJH3KU4H5KHJHFJ45"; // ثبت مليح إنو التوكن صحيح
+const JETPACK_TOKEN = "DJSKKNC34UFHJFHSHJBCIN47YILJLKHJQWBJH3KU4H5KHJHFJ45"; // ماتنساش تحط التوكن الصحيح متاعك لهنا
 
 const LOG_FILE = "log.txt";
 
@@ -21,7 +20,7 @@ const LOG_FILE = "log.txt";
 // -------------------------
 function log(data) {
   const message = `[${new Date().toISOString()}] ${data}\n`;
-  console.log(message); // نكتبو في الكونسول متاع Render زادة
+  console.log(message);
   try {
     fs.appendFileSync(LOG_FILE, message);
   } catch (err) {
@@ -40,20 +39,27 @@ app.get("/", (req, res) => {
 // SHOPIFY WEBHOOK
 // -------------------------
 app.post("/shopify", async (req, res) => {
-  // 1️⃣ أهم تبديل: جاوب Shopify دييييركت (Fire and Forget)
-  // هكا Shopify يعرف أنو الـ Webhook وصل، وماعادش يعاود يبعثو (No more retries)
+  // ✅ 1. نجاوبو Shopify ديراكت بش ما يعاودش يبعث (Fix Timeout)
   res.status(200).send('Webhook received');
 
-  // الكود الباقي يكمل يخدم وحدو حتى بعد ما جاوبنا Shopify
   try {
     log("📦 RAW SHOPIFY PAYLOAD RECEIVED");
-    
+
     const order = req.body;
 
     if (!order.id) {
       log("❌ ERROR: Missing order.id - Ignoring.");
-      return; // خرجنا خاطر ما فماش فايدة نكملو، أما ديجا جاوبنا Shopify بـ 200
+      return;
     }
+
+    // ✅ 2. حساب مجموع القطع الكل (Quantity Calculation)
+    let totalArticles = 0;
+    if (order.line_items && Array.isArray(order.line_items)) {
+      totalArticles = order.line_items.reduce((sum, item) => sum + (item.quantity || 1), 0);
+    }
+
+    // ✅ 3. نزيدو الكمية بجنب اسم المنتج (ex: 2x Parfum A)
+    const productNames = order.line_items?.map(item => `${item.quantity}x ${item.name}`).join(", ") || "Produit";
 
     // -------------------------
     // Build Jetpack data
@@ -66,12 +72,12 @@ app.post("/shopify", async (req, res) => {
       adresse: order.shipping_address?.address1 || "",
       tel: order.shipping_address?.phone || "",
       tel2: "", 
-      designation: order.line_items?.map(item => item.name).join(", ") || "Produit",
-      nb_article: order.line_items?.length || 1,
-      msg: `Order ID: ${order.id}`, // نزيدو الـ ID في الميساج بش نعرفو أناهي الكومند
+      designation: productNames, // الاسم + الكمية
+      nb_article: totalArticles || 1, // العدد الجملي الصحيح
+      msg: `Order ID: ${order.id}`,
     };
 
-    log(`➡️ SENDING ORDER ${order.id} TO JETPACK...`);
+    log(`➡️ SENDING ORDER ${order.id} TO JETPACK (Qty: ${totalArticles})...`);
 
     // -------------------------
     // Send to Jetpack
@@ -94,8 +100,6 @@ app.post("/shopify", async (req, res) => {
       let body = "";
       response.on("data", (chunk) => (body += chunk));
       response.on("end", () => {
-        // لهنا معاش نجمو نعملو res.json خاطر ديجا جاوبنا لفوق
-        // جيست نقيدو في اللوج شنوة صار
         log(`✅ SUCCESS JETPACK RESPONSE: ${body}`);
       });
     });
@@ -108,7 +112,6 @@ app.post("/shopify", async (req, res) => {
     request.end();
 
   } catch (err) {
-    // حتى كان فما غلطة، نكتبوها في اللوج، أما Shopify ديجا خدا الـ OK
     log(`❌ SERVER ERROR: ${err.message}`);
   }
 });
