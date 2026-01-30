@@ -9,72 +9,60 @@ app.use(express.json());
 // CONFIGURATION
 // -------------------------
 const JETPACK_URL = "https://www.jetpack.tn/apis/mande-DJSKKNC34UFHJFHSHJBCIN47YILJLKHJQWBJH3KU4H5KHJHFJ45/v1/post.php";
-const JETPACK_TOKEN = "DJSKKNC34UFHJFHSHJBCIN47YILJLKHJQWBJH3KU4H5KHJHFJ45"; // ثبت التوكن
+const JETPACK_TOKEN = "DJSKKNC34UFHJFHSHJBCIN47YILJLKHJQWBJH3KU4H5KHJHFJ45"; 
 const LOG_FILE = "log.txt";
 
-// -------------------------
-// ANTI-DUPLICATE MEMORY
-// -------------------------
-// هذه "الذاكرة" بش نسجلو فيها أرقام الكومندات إلي خدمناهم
 const processedOrders = new Set();
 
-// -------------------------
-// Helper: Logging
-// -------------------------
 function log(data) {
   const message = `[${new Date().toISOString()}] ${data}\n`;
   console.log(message);
-  try {
-    fs.appendFileSync(LOG_FILE, message);
-  } catch (err) {
-    console.error("Error writing to log file:", err);
-  }
+  try { fs.appendFileSync(LOG_FILE, message); } catch (e) {}
 }
 
-app.get("/", (req, res) => res.send("🚀 Shopify Webhook Server is Running"));
+app.get("/", (req, res) => res.send("🚀 Server Running"));
 
-// -------------------------
-// SHOPIFY WEBHOOK
-// -------------------------
 app.post("/shopify", async (req, res) => {
+  // 1. جاوب فيسع
+  res.status(200).send('Webhook received');
+
   try {
     const order = req.body;
     const orderId = order.id;
 
-    // 🛑 1. الحماية القوية: تثبت كان الكومند هذي خدمناها قبل ولا لا
+    // ----------------------------------------------------
+    // 🛑 FILTER 1: ممنوع مرور الكومندات الفارغة
+    // ----------------------------------------------------
+    // هذا إلي بش ينحيلك الزوز كومندات الفارغين
+    if (!order.shipping_address || !order.shipping_address.address1) {
+      log(`⚠️ IGNORED: Order ${orderId} has no shipping address (Empty payload).`);
+      return; 
+    }
+
+    // ----------------------------------------------------
+    // 🛑 FILTER 2: ممنوع التكرار
+    // ----------------------------------------------------
     if (orderId && processedOrders.has(orderId)) {
-      console.log(`⚠️ DUPLICATE DETECTED: Order ${orderId} already processed. Ignoring.`);
-      return res.status(200).send('Already processed');
-    }
-
-    // كان جديدة، نسجلوها في الذاكرة
-    if (orderId) {
-      processedOrders.add(orderId);
-      // نفسخوها من الذاكرة بعد 10 دقايق بش ما نعبيوش الرام
-      setTimeout(() => processedOrders.delete(orderId), 10 * 60 * 1000);
-    }
-
-    // ✅ 2. نجاوبو Shopify ديراكت
-    res.status(200).send('Webhook received');
-
-    // نكملو الخدمة...
-    if (!orderId) {
-      log("❌ ERROR: Missing order.id - Ignoring.");
+      console.log(`⚠️ DUPLICATE BLOCKED: Order ${orderId}`);
       return;
     }
 
-    log(`📦 PROCESSING ORDER: ${orderId}`);
+    // سجل الكومند
+    if (orderId) {
+      processedOrders.add(orderId);
+      setTimeout(() => processedOrders.delete(orderId), 10 * 60 * 1000);
+    }
 
-    // ✅ 3. حساب مجموع القطع
+    log(`📦 PROCESSING VALID ORDER: ${orderId}`);
+
+    // حساب الكمية
     let totalArticles = 0;
     if (order.line_items && Array.isArray(order.line_items)) {
       totalArticles = order.line_items.reduce((sum, item) => sum + (item.quantity || 1), 0);
     }
 
-    // ✅ 4. اسم المنتج + الكمية
     const productNames = order.line_items?.map(item => `${item.quantity}x ${item.name}`).join(", ") || "Produit";
 
-    // Build Jetpack data
     const data = {
       prix: order.total_price || 0,
       nom: (order.customer?.first_name || "") + " " + (order.customer?.last_name || ""),
@@ -88,15 +76,11 @@ app.post("/shopify", async (req, res) => {
       msg: `Order ID: ${orderId}`,
     };
 
-    log(`➡️ SENDING TO JETPACK (Qty: ${totalArticles})...`);
-
+    // Send to Jetpack
     const postData = new URLSearchParams(data).toString();
     const url = new URL(JETPACK_URL);
-
     const options = {
-      hostname: url.hostname,
-      path: url.pathname,
-      method: "POST",
+      hostname: url.hostname, path: url.pathname, method: "POST",
       headers: {
         "Authorization": "Basic " + Buffer.from(JETPACK_TOKEN + ":").toString("base64"),
         "Content-Type": "application/x-www-form-urlencoded",
@@ -106,36 +90,25 @@ app.post("/shopify", async (req, res) => {
 
     const request = https.request(options, (response) => {
       let body = "";
-      response.on("data", (chunk) => (body += chunk));
-      response.on("end", () => {
-        log(`✅ SUCCESS JETPACK: ${body}`);
-      });
+      response.on("data", (chunk) => body += chunk);
+      response.on("end", () => log(`✅ SENT TO JETPACK: ${body}`));
     });
 
-    request.on("error", (e) => {
-      log(`❌ ERROR JETPACK: ${e.message}`);
-    });
-
+    request.on("error", (e) => log(`❌ JETPACK ERROR: ${e.message}`));
     request.write(postData);
     request.end();
 
   } catch (err) {
-    log(`❌ SERVER ERROR: ${err.message}`);
-    // حتى كان فما ايرور، نجاوبو Shopify بش ما يعاودش يبعث
-    if (!res.headersSent) res.status(200).send('Error logged');
+    log(`❌ ERROR: ${err.message}`);
   }
 });
 
+// Logs Viewer
 app.get("/logs", (req, res) => {
-  const key = req.query.key;
-  if (key !== "MonMotDePasse123") return res.status(403).send("Forbidden");
-  try {
-    if (fs.existsSync(LOG_FILE)) {
-        const logs = fs.readFileSync(LOG_FILE, "utf-8");
-        res.type("text/plain").send(logs);
-    } else { res.send("No logs yet."); }
-  } catch (err) { res.status(500).send("Err: " + err.message); }
+    if (req.query.key !== "MonMotDePasse123") return res.status(403).send("Forbidden");
+    try { res.type("text/plain").send(fs.existsSync(LOG_FILE) ? fs.readFileSync(LOG_FILE, "utf-8") : "No logs."); } 
+    catch (e) { res.status(500).send(e.message); }
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 Server on ${PORT}`));
